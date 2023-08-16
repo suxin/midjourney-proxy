@@ -23,7 +23,7 @@
         <knife4j.verison>4.1.0</knife4j.verison>
         <user-agent-utils.verison>1.21</user-agent-utils.verison>
         <httpclient.verison>4.5.14</httpclient.verison>
-        <java.version>17</java.version>
+        <java.version>15</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
     </properties>

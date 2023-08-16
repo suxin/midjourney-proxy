@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Component
@@ -25,7 +26,7 @@ public class TaskTimeoutSchedule {
 		long timeout = TimeUnit.MINUTES.toMillis(this.properties.getQueue().getTimeoutMinutes());
 		List<Task> tasks = this.taskQueueHelper.findRunningTask(new TaskCondition())
 				.filter(t -> currentTime - t.getStartTime() > timeout)
-				.toList();
+				.collect(Collectors.toList());
 		for (Task task : tasks) {
 			if (Set.of(TaskStatus.FAILURE, TaskStatus.SUCCESS).contains(task.getStatus())) {
 				log.warn("task status is failure/success but is in the queue, end it. id: {}", task.getId());

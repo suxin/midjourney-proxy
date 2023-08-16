@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collector;
+import java.util.stream.Collectors;
 
 @UtilityClass
 public class BannedPromptUtils {
@@ -26,7 +28,7 @@ public class BannedPromptUtils {
 			var resource = BannedPromptUtils.class.getResource("/banned-words.txt");
 			lines = FileUtil.readLines(resource, StandardCharsets.UTF_8);
 		}
-		BANNED_WORDS = lines.stream().filter(CharSequenceUtil::isNotBlank).toList();
+		BANNED_WORDS = lines.stream().filter(CharSequenceUtil::isNotBlank).collect(Collectors.toList());
 	}
 
 	public static void checkBanned(String promptEn) throws BannedPromptException {
