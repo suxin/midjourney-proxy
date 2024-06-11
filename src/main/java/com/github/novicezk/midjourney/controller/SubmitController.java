@@ -13,13 +13,13 @@ import com.github.novicezk.midjourney.dto.SubmitImagineDTO;
 import com.github.novicezk.midjourney.dto.SubmitSimpleChangeDTO;
 import com.github.novicezk.midjourney.enums.TaskAction;
 import com.github.novicezk.midjourney.enums.TaskStatus;
+import com.github.novicezk.midjourney.enums.TranslateWay;
 import com.github.novicezk.midjourney.exception.BannedPromptException;
 import com.github.novicezk.midjourney.result.SubmitResultVO;
 import com.github.novicezk.midjourney.service.TaskService;
 import com.github.novicezk.midjourney.service.TaskStoreService;
 import com.github.novicezk.midjourney.service.TranslateService;
 import com.github.novicezk.midjourney.support.Task;
-import com.github.novicezk.midjourney.support.TaskCondition;
 import com.github.novicezk.midjourney.util.BannedPromptUtils;
 import com.github.novicezk.midjourney.util.ConvertUtils;
 import com.github.novicezk.midjourney.util.MimeTypeUtils;
@@ -41,6 +41,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Api(tags = "任务提交")
 @RestController
@@ -116,15 +118,6 @@ public class SubmitController {
 		} else {
 			description += " " + changeDTO.getAction().name().charAt(0) + changeDTO.getIndex();
 		}
-		if (TaskAction.UPSCALE.equals(changeDTO.getAction())) {
-			TaskCondition condition = new TaskCondition().setDescription(description);
-			Task existTask = this.taskStoreService.findOne(condition);
-			if (existTask != null) {
-				return SubmitResultVO.of(ReturnCode.EXISTED, "任务已存在", existTask.getId())
-						.setProperty("status", existTask.getStatus())
-						.setProperty("imageUrl", existTask.getImageUrl());
-			}
-		}
 		Task targetTask = this.taskStoreService.get(changeDTO.getTaskId());
 		if (targetTask == null) {
 			return SubmitResultVO.fail(ReturnCode.NOT_FOUND, "关联任务不存在或已失效");
@@ -141,6 +134,7 @@ public class SubmitController {
 		task.setPromptEn(targetTask.getPromptEn());
 		task.setProperty(Constants.TASK_PROPERTY_FINAL_PROMPT, targetTask.getProperty(Constants.TASK_PROPERTY_FINAL_PROMPT));
 		task.setProperty(Constants.TASK_PROPERTY_PROGRESS_MESSAGE_ID, targetTask.getProperty(Constants.TASK_PROPERTY_MESSAGE_ID));
+		task.setProperty(Constants.TASK_PROPERTY_DISCORD_INSTANCE_ID, targetTask.getProperty(Constants.TASK_PROPERTY_DISCORD_INSTANCE_ID));
 		task.setDescription(description);
 		int messageFlags = targetTask.getPropertyGeneric(Constants.TASK_PROPERTY_FLAGS);
 		String messageId = targetTask.getPropertyGeneric(Constants.TASK_PROPERTY_MESSAGE_ID);
@@ -202,7 +196,7 @@ public class SubmitController {
 
 	private Task newTask(BaseSubmitDTO base) {
 		Task task = new Task();
-		task.setId(System.currentTimeMillis() + "" + RandomUtil.randomNumbers(3));
+		task.setId(System.currentTimeMillis() + RandomUtil.randomNumbers(3));
 		task.setSubmitTime(System.currentTimeMillis());
 		task.setState(base.getState());
 		String notifyHook = CharSequenceUtil.isBlank(base.getNotifyHook()) ? this.properties.getNotifyHook() : base.getNotifyHook();
@@ -212,16 +206,36 @@ public class SubmitController {
 	}
 
 	private String translatePrompt(String prompt) {
-		String promptEn;
-		int paramStart = prompt.indexOf(" --");
-		if (paramStart > 0) {
-			promptEn = this.translateService.translateToEnglish(prompt.substring(0, paramStart)).trim() + prompt.substring(paramStart);
-		} else {
-			promptEn = this.translateService.translateToEnglish(prompt).trim();
+		if (TranslateWay.NULL.equals(this.properties.getTranslateWay()) || CharSequenceUtil.isBlank(prompt) || !this.translateService.containsChinese(prompt)) {
+			return prompt;
 		}
-		if (CharSequenceUtil.isBlank(promptEn)) {
-			promptEn = prompt;
+		String paramStr = "";
+		Matcher paramMatcher = Pattern.compile("\\x20+-{1,2}[a-z]+.*$", Pattern.CASE_INSENSITIVE).matcher(prompt);
+		if (paramMatcher.find()) {
+			paramStr = paramMatcher.group(0);
 		}
-		return promptEn;
+		String promptWithoutParam = CharSequenceUtil.sub(prompt, 0, prompt.length() - paramStr.length());
+		List<String> imageUrls = new ArrayList<>();
+		Matcher imageMatcher = Pattern.compile("https?://[a-z0-9-_:@&?=+,.!/~*'%$]+\\x20+", Pattern.CASE_INSENSITIVE).matcher(promptWithoutParam);
+		while (imageMatcher.find()) {
+			imageUrls.add(imageMatcher.group(0));
+		}
+		String text = promptWithoutParam;
+		for (String imageUrl : imageUrls) {
+			text = CharSequenceUtil.replaceFirst(text, imageUrl, "");
+		}
+		if (CharSequenceUtil.isNotBlank(text)) {
+			text = this.translateService.translateToEnglish(text).trim();
+		}
+		if (CharSequenceUtil.isNotBlank(paramStr)) {
+			Matcher paramNomatcher = Pattern.compile("-{1,2}no\\s+(.*?)(?=-|$)").matcher(paramStr);
+			if (paramNomatcher.find()) {
+				String paramNoStr = paramNomatcher.group(1).trim();
+				String paramNoStrEn = this.translateService.translateToEnglish(paramNoStr).trim();
+				paramStr = paramNomatcher.replaceFirst("--no " + paramNoStrEn + " ");
+			}
+		}
+		return CharSequenceUtil.join("", imageUrls) + text + paramStr;
 	}
+
 }
